@@ -6,8 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
 from app.db.models import Project, Task, User
-from app.schemas.ai import AIResponse, AISuggestionsRequest, AISummaryRequest
-from app.services.ai_client import generate_suggestions, generate_summary
+from app.schemas.ai import AIChatRequest, AIResponse, AISuggestionsRequest, AISummaryRequest
+from app.services.ai_client import (
+    generate_suggestions,
+    generate_summary,
+    handle_chat_query,
+)
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -57,4 +61,15 @@ async def suggestions(
 ):
     project_name, tasks = await _project_tasks_context(body.project_id, db, user)
     result = await generate_suggestions(project_name, tasks, user_prompt_extra=body.prompt)
+    return AIResponse(result=result)
+
+
+@router.post("/chat", response_model=AIResponse)
+async def chat(
+    body: AIChatRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    project_name, tasks = await _project_tasks_context(body.project_id, db, user)
+    result = await handle_chat_query(project_name, tasks, query=body.message)
     return AIResponse(result=result)

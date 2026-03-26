@@ -2,21 +2,22 @@
 Import a project plan from an uploaded Excel (.xlsx) or CSV file.
 
 Expected columns (case-insensitive, leading/trailing spaces stripped):
-    Project Name  – used for the project name (taken from the first row)
-    Task Name     – required
-    Owner         – optional, maps to Task.assignee
-    Start Date    – optional, ISO or common date formats
-    End Date      – optional
-    Status        – optional (not_started | in_progress | completed | blocked)
-    Priority      – optional (low | medium | high | critical)
-    Description   – optional
+    Project Name  -- used for the project name (taken from the first row)
+    Task Name     -- required
+    Owner         -- optional, maps to Task.assignee
+    Start Date    -- optional, ISO or common date formats
+    End Date      -- optional
+    Status        -- optional (not_started | in_progress | completed | blocked)
+    Priority      -- optional (low | medium | high | critical)
+    Description   -- optional
 """
 
 from __future__ import annotations
 
+import datetime
 import io
 import uuid
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,13 +46,16 @@ def _parse_priority(raw: str | None) -> str:
     return "medium"
 
 
-def _get_str(row: pd.Series, col: str) -> str | None:
-    """Return a stripped string or None for missing/NaN values."""
-    val = row.get(col)
+def _to_py_datetime(val: Any) -> datetime.datetime | None:
+    """Convert pandas timestamp/NaT to standard python datetime/None."""
     if pd.isna(val):
         return None
-    s = str(val).strip()
-    return s if s else None
+    if isinstance(val, (pd.Timestamp, datetime.datetime)):
+        dt = val.to_pydatetime() if hasattr(val, "to_pydatetime") else val
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+        return dt
+    return None
 
 
 async def import_file(
@@ -90,23 +94,19 @@ async def import_file(
         if not task_title:
             continue
 
-        start_dt = pd.to_datetime(row.get("start_date"), errors="coerce")
-        end_dt = pd.to_datetime(row.get("end_date"), errors="coerce")
-
         task = Task(
             id=uuid.uuid4(),
             project_id=project.id,
             title=task_title,
-            description=_get_str(row, "description"),
-            assignee=_get_str(row, "assignee") or _get_str(row, "owner"),
+            description=str(row["description"]).strip() if pd.notna(row.get("description")) else None,
+            assignee=str(row["owner"]).strip() if pd.notna(row.get("owner")) else None,
             status=_parse_status(row.get("status")),
             priority=_parse_priority(row.get("priority")),
-            start_date=start_dt.to_pydatetime() if pd.notna(start_dt) else None,
-            end_date=end_dt.to_pydatetime() if pd.notna(end_dt) else None,
+            start_date=_to_py_datetime(pd.to_datetime(row.get("start_date"), errors="coerce")),
+            end_date=_to_py_datetime(pd.to_datetime(row.get("end_date"), errors="coerce")),
         )
         db.add(task)
 
-    await db.flush()
     await db.commit()
     await db.refresh(project)
     return project

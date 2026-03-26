@@ -94,7 +94,7 @@ def ai_chat_view(page: ft.Page, state: AppState, api: ApiClient):
             if focus:
                 data = api.ai_summary(pid, focus)
             elif prompt:
-                data = api.ai_suggestions(pid, prompt)
+                data = api.ai_chat(pid, prompt)
             else:
                 data = api.ai_summary(pid)
 

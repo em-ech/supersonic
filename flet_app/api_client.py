@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, Optional
 
 import httpx
 
 from flet_app.state import AppState
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = os.environ.get("SUPERSONIC_API_URL", "http://localhost:8002")
 UPLOAD_TIMEOUT = 60.0
 
 
@@ -36,7 +37,7 @@ class ApiClient:
         try:
             resp = self._client.request(method, path, headers=self._headers(), **kwargs)
         except httpx.ConnectError:
-            raise ApiError("Cannot reach the server. Is the backend running on port 8000?")
+            raise ApiError(f"Cannot reach the server. Is the backend running at {BASE_URL}?")
 
         if resp.status_code == 401:
             self.state.clear()
@@ -165,6 +166,9 @@ class ApiClient:
         if prompt:
             body["prompt"] = prompt
         return self._request("POST", "/ai/suggestions", json=body)
+
+    def ai_chat(self, project_id: str, message: str) -> dict:
+        return self._request("POST", "/ai/chat", json={"project_id": project_id, "message": message})
 
     # ── Health ──
 
