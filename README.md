@@ -1,57 +1,60 @@
 # Supersonic
 
-An AI powered project planning platform built as a full stack web application. Supersonic lets teams create projects, break them into tasks, attach messages, and get intelligent summaries and scheduling suggestions from an AI assistant.
-
-Live at `http://localhost:8000` after deployment.
+An AI-powered project planning platform built with a **Flet (Python) desktop frontend** and a **FastAPI backend**. Users can create projects, manage tasks, attach messages, import data from spreadsheets, view analytics with visual charts, and interact with a Claude-powered AI assistant for project insights.
 
 ## Table of Contents
 
 1. [Architecture Overview](#architecture-overview)
 2. [Technology Stack](#technology-stack)
 3. [Application Screens](#application-screens)
-4. [Feature Breakdown](#feature-breakdown)
+4. [Key Features](#key-features)
 5. [Database Schema](#database-schema)
 6. [API Reference](#api-reference)
 7. [Design System](#design-system)
-8. [Accessibility](#accessibility)
+8. [Frontend Requirements Coverage](#frontend-requirements-coverage)
 9. [Project Structure](#project-structure)
 10. [Setup and Deployment](#setup-and-deployment)
 
 ## Architecture Overview
 
-Supersonic follows a layered client/server architecture with clear separation between the frontend presentation layer and the backend API.
+Supersonic follows a layered client/server architecture. The Flet desktop frontend communicates with a FastAPI backend over HTTP/JSON. All state is managed through a centralized `AppState` object with JWT persistence.
 
 ```
-+--------------------------------------------------+
-|                   Browser Client                  |
-|                                                   |
-|  +--------+   +-----------+   +---------------+  |
-|  |  HTML   |   |    CSS    |   |  JavaScript   |  |
-|  | Jinja2  |   |  Design   |   |   API Client  |  |
-|  |Templates|   |  System   |   |  + UI Logic   |  |
-|  +--------+   +-----------+   +---------------+  |
-+------------------------||------------------------+
++-----------------------------------------------------+
+|               Flet Desktop Application               |
+|                                                       |
+|  +----------+   +-----------+   +------------------+ |
+|  |  Views   |   |Components |   |   AppState       | |
+|  | login    |   | nav_rail  |   | token (persisted)| |
+|  | dashboard|   | stat_card |   | user (in-memory) | |
+|  | project  |   | task_row  |   | selected_project | |
+|  | analytics|   | gantt     |   +------------------+ |
+|  | ai_chat  |   | chat_bubble|          |            |
+|  +----------+   | file_import|          |            |
+|       |         +-----------+           |            |
+|       v                                 v            |
+|  +----------------------------------------------+   |
+|  |           ApiClient (httpx + JWT)             |   |
+|  +----------------------------------------------+   |
++------------------------||----------------------------+
                          || HTTP / JSON
-+------------------------||------------------------+
-|                   FastAPI Server                  |
-|                                                   |
-|  +-------------+  +----------+  +-------------+  |
-|  |    Page     |  |   API    |  |   Static     |  |
-|  |   Routes    |  |  Routes  |  |   Files      |  |
-|  | (HTML views)|  | (JSON)   |  | (CSS/JS)     |  |
-|  +-------------+  +----------+  +-------------+  |
-|                        ||                         |
-|  +-------------+  +----------+  +-------------+  |
-|  |   Schemas   |  | Services |  |  Security    |  |
-|  |  (Pydantic) |  | (AI, Im- |  | (JWT, Hash)  |  |
-|  |             |  |  porter) |  |              |  |
-|  +-------------+  +----------+  +-------------+  |
-|                        ||                         |
-|  +--------------------------------------------+  |
-|  |         SQLAlchemy ORM (Async)              |  |
-|  |   Models: User, Project, Task, Tag, Message |  |
-|  +--------------------------------------------+  |
-+------------------------||------------------------+
++------------------------||----------------------------+
+|                   FastAPI Server                      |
+|                                                       |
+|  +-------------+  +----------+  +-----------------+  |
+|  |   Routes    |  | Services |  |    Security     |  |
+|  | auth        |  | ai_client|  | JWT (python-jose)|  |
+|  | projects    |  | (Claude) |  | bcrypt (passlib) |  |
+|  | tasks       |  | importer |  +-----------------+  |
+|  | messages    |  | (pandas) |                       |
+|  | ai          |  +----------+                       |
+|  +-------------+       |                             |
+|                        v                             |
+|  +----------------------------------------------+   |
+|  |         SQLAlchemy ORM (Async)                |   |
+|  |   Models: User, Project, Task, Tag, Message   |   |
+|  +----------------------------------------------+   |
++------------------------||----------------------------+
                          || asyncpg
               +----------||----------+
               |     PostgreSQL 16    |
@@ -61,127 +64,160 @@ Supersonic follows a layered client/server architecture with clear separation be
 
 **Request lifecycle:**
 
-1. User opens a page in the browser. FastAPI serves an HTML template.
-2. On page load, JavaScript calls the REST API with a JWT bearer token.
-3. FastAPI validates the token, queries the database through SQLAlchemy, and returns JSON.
-4. JavaScript renders the data into the page using DOM manipulation.
-5. User actions (create, edit, delete) send JSON payloads back to the API.
-6. The database persists all changes. The UI updates immediately.
+1. User interacts with a Flet control (button click, form submit, tab switch).
+2. The view handler calls `ApiClient`, which sends an HTTP request with a JWT bearer token.
+3. FastAPI validates the token, queries PostgreSQL through SQLAlchemy, and returns JSON.
+4. The view handler updates Flet controls with the response data and calls `page.update()`.
 
 ## Technology Stack
 
-| Layer                | Technology                           | Purpose                                                     |
-| -------------------- | ------------------------------------ | ----------------------------------------------------------- |
-| **Frontend**         | HTML5 + Jinja2                       | Page structure and server side templating                   |
-| **Styling**          | CSS3 (custom properties)             | Design system with variables, animations, responsive layout |
-| **Interactivity**    | Vanilla JavaScript                   | DOM manipulation, API calls, modals, toast notifications    |
-| **Backend**          | FastAPI 0.115                        | Async REST API framework with automatic OpenAPI docs        |
-| **ORM**              | SQLAlchemy 2.0 (async)               | Database models, queries, and relationships                 |
-| **Database**         | PostgreSQL 16                        | Persistent data storage with UUID primary keys              |
-| **Auth**             | JWT (python jose) + bcrypt (passlib) | Stateless token authentication and password hashing         |
-| **AI Service**       | Pluggable client (stub)              | Project summaries and scheduling suggestions                |
-| **File Parsing**     | pandas + openpyxl                    | Excel and CSV import for bulk task creation                 |
-| **Containerization** | Docker + Docker Compose              | Reproducible deployment with health checks                  |
+| Layer                | Technology                 | Purpose                                                         |
+| -------------------- | -------------------------- | --------------------------------------------------------------- |
+| **Frontend**         | Flet 0.82.x (Python)       | Desktop UI with controls, layouts, navigation, state management |
+| **API Client**       | httpx                      | HTTP communication with backend, JWT handling                   |
+| **Backend**          | FastAPI 0.115              | Async REST API with automatic OpenAPI docs                      |
+| **ORM**              | SQLAlchemy 2.0 (async)     | Database models, queries, relationships                         |
+| **Database**         | PostgreSQL 16 (Docker)     | Persistent data storage with UUID primary keys                  |
+| **Auth**             | JWT (python-jose) + bcrypt | Stateless token authentication and password hashing             |
+| **AI Service**       | Anthropic Claude (Sonnet)  | Project summaries and scheduling suggestions                    |
+| **File Parsing**     | pandas + openpyxl          | Excel and CSV import for bulk task creation                     |
+| **Containerization** | Docker + Docker Compose    | Reproducible backend deployment with health checks              |
 
 ## Application Screens
 
-### 1. Authentication (`/`)
+### 1. Login / Register (`/login`)
 
-Full viewport sign in and registration screen. Features:
+Full-viewport centered sign-in screen with brand logo and tagline.
 
-- Animated gradient orbs and a subtle grid overlay in the background
-- Glassmorphism card with backdrop blur
-- Toggle between Sign In and Create Account modes
-- Form validation with animated error messages
-- Automatic redirect to dashboard on successful authentication
-- JWT token stored in localStorage for subsequent API calls
+- Toggle between Sign In and Create Account modes without page reload
+- Username + password fields (register adds optional full name)
+- Submit via button click or Enter key (`on_submit`)
+- Error text displayed on failed auth
+- Submit button disables during API call to prevent double-submit
+- On success: JWT persisted to `~/.supersonic/token.json`, user profile fetched, navigate to dashboard
+- Auto-login on app relaunch if saved token is valid
 
 ### 2. Dashboard (`/dashboard`)
 
-Project portfolio overview. Features:
+Project portfolio overview with aggregate statistics.
 
-- **Sidebar navigation** with brand logo, project list (up to 8), and user card with sign out
-- **Stats bar** showing total projects, active tasks, completed tasks, and blocked tasks
-- **Project cards** displayed in a responsive grid, each showing name, description, task breakdown (done / active / blocked), and creation date
-- **New Project modal** with name and description fields
-- **Import modal** with drag and drop file upload (supports .xlsx, .xls, .csv)
-- **Delete** capability on each project card with confirmation
-- Staggered entrance animations on all cards
-- Empty state with call to action when no projects exist
-- Mobile responsive: sidebar collapses behind a hamburger menu
+- **NavigationRail** sidebar with Dashboard, Analytics, AI Chat, Profile destinations and sign-out button
+- **Stats row**: total projects, active tasks, completed tasks, blocked tasks (using `stat_card` component)
+- **Project grid**: 2-column layout of clickable `project_card` components
+- Each card shows: name (truncated), description, task counts (done/active/blocked as colored dots), creation date
+- **New Project** button opens `AlertDialog` with name and description fields
+- **Import CSV/XLSX** button opens native OS file picker via `FilePicker` (desktop mode)
+- Delete button on each card
+- Empty state with CTA buttons when no projects exist
+- Data reloads on every route entry
 
 ### 3. Project Detail (`/project/{id}`)
 
-Single project workspace with tabbed interface. Features:
+Single project workspace with tabbed interface.
 
-- **Breadcrumb** navigation back to dashboard
-- **Progress bar** showing percentage of tasks completed
-- **Edit** and **Delete** project actions
-- **Three tabs**: Tasks, Messages, AI Assistant
+**Header:**
+
+- Breadcrumb: "Projects / {project name}" with clickable back link
+- Progress bar showing percentage of completed tasks
+- Edit and Delete project buttons
 
 **Tasks tab:**
 
-- Filter chips: All, Not Started, In Progress, Completed, Blocked
-- Task rows with status dot, title, status/priority badges, assignee avatar, and due date
-- Inline edit and delete actions (appear on hover)
-- Add Task modal with fields for title, description, status, priority, assignee, start/end dates
+- Filter chips: All, Not Started, In Progress, Completed, Blocked (active chip highlighted)
+- Task list using `task_row` component: status dot, title, status/priority badges, assignee avatar, end date
+- Edit and delete icon buttons per task row
+- Add Task dialog with: title, description, status dropdown, priority dropdown, assignee, start/end dates
+- Empty state when no tasks exist
+
+**Gantt tab:**
+
+- Horizontal bar chart with tasks as rows, positioned by start/end dates
+- Color-coded bars by task status (green=completed, blue=in progress, gray=not started, red=blocked)
+- Date range header with month markers
+- Tooltip on hover showing task details
+- Unscheduled tasks listed separately below the chart
 
 **Messages tab:**
 
 - Chronological message list with subject, sender, date, and body
-- New Message modal for attaching notes and emails to the project
+- New Message dialog with subject, sender, body fields
+- Empty state when no messages exist
 
 **AI Assistant tab:**
 
-- Two card layout: Summary and Suggestions
-- Summary card with focus area buttons (Overview, Risks, Timeline, Workload)
-- Suggestions card with free text prompt input
-- Loading spinners during AI generation
-- Disclaimer display for AI generated content
+- Summary section with focus area buttons: Overview, Risks, Timeline, Workload
+- Suggestions section with free-text prompt input
+- Results displayed in styled containers
 
-## Feature Breakdown
+### 4. Analytics (`/analytics`)
+
+Data visualization dashboard with portfolio-level metrics.
+
+- Summary stats: total tasks, completion rate (%), at-risk count, active projects
+- Stacked horizontal bar chart for task status distribution (built from Container widths)
+- Per-project progress bars using `Stack` (background + foreground layers)
+- Priority distribution horizontal bars with labels and counts
+- AI risk analysis section: iterates all projects, calls Claude, displays results
+- Loading spinner (`ProgressRing`) during data loads
+- Color legend for status categories
+
+### 5. AI Chat (`/ai-chat`)
+
+Conversational interface for AI-powered project insights.
+
+- Project selector dropdown (loaded from API)
+- Chat message history rendered as bubbles (user = accent/right, bot = surface/left)
+- Text input with send button and Enter key support (`on_submit`)
+- Quick-action chips: Overview, Risks, Timeline, Workload (auto-send with focus)
+- Typing indicator (`ProgressRing` + "Thinking..." text) during API calls
+- Messages appended dynamically to the column
+- Routes to `ai_summary` (focus areas) or `ai_suggestions` (free text) based on input
+
+### 6. Profile (`/profile`)
+
+User information display.
+
+- Avatar circle with user initial, accent background
+- Full name, @username, member since date
+- Info card with labeled rows
+- Redirect to login on API error (expired token)
+
+## Key Features
 
 ### Authentication and Security
 
 - User registration with username (min 3 chars), password (min 6 chars), optional full name
 - bcrypt password hashing via passlib
 - JWT access tokens with configurable expiration (default 60 minutes)
-- All API endpoints (except register, login, health, policy) require Bearer token
+- Token persisted to `~/.supersonic/token.json` for auto-login across sessions
 - Automatic redirect to login on 401 responses
+- All API endpoints (except register, login, health, policy) require Bearer token
 
 ### Project Management
 
-- Create, read, update, delete projects
-- Each project scoped to its owner (no cross user access)
+- Full CRUD on projects, each scoped to its owner
 - Cascade deletion removes all child tasks and messages
-- Import projects from spreadsheets: column auto detection, flexible date parsing, status/priority validation with fallback defaults
+- Import from CSV/XLSX/XLS via native OS file picker (desktop mode `FilePicker`)
 
 ### Task Management
 
-- Full CRUD operations on tasks within a project
-- Status tracking: not_started, in_progress, completed, blocked
-- Priority levels: low, medium, high, critical
-- Optional assignee, start date, and end date
-- Server side filtering by status and priority (query params)
-- Client side filter chips for instant switching
+- Full CRUD with status (not_started, in_progress, completed, blocked) and priority (low, medium, high, critical)
+- Optional assignee, start date, end date
+- Filter chips for instant status filtering
+- Gantt chart visualization for scheduled tasks
 
-### Messages
+### AI Assistant (Claude)
 
-- Attach notes and emails to any project
-- Optional task linkage for context
-- Chronological listing (newest first)
-
-### AI Assistant
-
-- Project summary generation with optional focus areas (risks, timeline, workload)
-- Scheduling and priority suggestions with optional user prompt
-- Pluggable AI client: currently a deterministic stub, designed for swap to any LLM provider without changing route code
+- Project summary generation with focus areas (risks, timeline, workload)
+- Scheduling and priority suggestions with free-text prompts
+- Conversational chat interface with quick-action chips
+- Powered by Claude Sonnet via Anthropic SDK
+- Falls back to stub responses if no API key configured
 
 ### Data Import
 
-- Upload .xlsx, .xls, or .csv files
-- Auto detects columns: Task Name (required), Project Name, Owner, Start Date, End Date, Status, Priority, Description
-- Case insensitive column matching with whitespace trimming
+- Upload .xlsx, .xls, or .csv files via OS file dialog
+- Auto-detects columns: Task Name (required), Project Name, Owner/Assignee, Start Date, End Date, Status, Priority, Description
 - Creates project and all tasks in a single database transaction
 
 ## Database Schema
@@ -222,7 +258,7 @@ Single project workspace with tabbed interface. Features:
 
 **Relationships:**
 
-- User 1:N Project (owner)
+- User 1:N Project (owner, cascade delete)
 - Project 1:N Task (cascade delete)
 - Project 1:N Message (cascade delete)
 - Task N:M Tag (via task_tags, cascade both sides)
@@ -232,213 +268,174 @@ Single project workspace with tabbed interface. Features:
 
 All endpoints return JSON. Authentication via `Authorization: Bearer <token>` header.
 
-### Auth
+| Method | Path                      | Description                | Auth |
+| ------ | ------------------------- | -------------------------- | ---- |
+| POST   | `/auth/register`          | Create user account        | No   |
+| POST   | `/auth/login`             | Get JWT access token       | No   |
+| GET    | `/auth/me`                | Current user profile       | Yes  |
+| POST   | `/projects`               | Create project             | Yes  |
+| GET    | `/projects`               | List all projects          | Yes  |
+| GET    | `/projects/{id}`          | Get single project         | Yes  |
+| PUT    | `/projects/{id}`          | Update project             | Yes  |
+| DELETE | `/projects/{id}`          | Delete project + children  | Yes  |
+| POST   | `/projects/import`        | Import from spreadsheet    | Yes  |
+| POST   | `/projects/{id}/tasks`    | Create task                | Yes  |
+| GET    | `/projects/{id}/tasks`    | List tasks (filterable)    | Yes  |
+| GET    | `/tasks/{id}`             | Get single task            | Yes  |
+| PUT    | `/tasks/{id}`             | Update task                | Yes  |
+| DELETE | `/tasks/{id}`             | Delete task                | Yes  |
+| POST   | `/projects/{id}/messages` | Create message             | Yes  |
+| GET    | `/projects/{id}/messages` | List messages              | Yes  |
+| POST   | `/ai/summary`             | Generate project summary   | Yes  |
+| POST   | `/ai/suggestions`         | Get scheduling suggestions | Yes  |
+| GET    | `/health`                 | Health check               | No   |
+| GET    | `/policy`                 | Ethics/security policy     | No   |
 
-| Method | Path             | Description                    | Auth |
-| ------ | ---------------- | ------------------------------ | ---- |
-| POST   | `/auth/register` | Create a new user account      | No   |
-| POST   | `/auth/login`    | Get JWT access token           | No   |
-| GET    | `/auth/me`       | Get current authenticated user | Yes  |
-
-### Projects
-
-| Method | Path               | Description                      | Auth |
-| ------ | ------------------ | -------------------------------- | ---- |
-| POST   | `/projects`        | Create a new project             | Yes  |
-| GET    | `/projects`        | List all projects (newest first) | Yes  |
-| GET    | `/projects/{id}`   | Get a single project             | Yes  |
-| PUT    | `/projects/{id}`   | Update project name/description  | Yes  |
-| DELETE | `/projects/{id}`   | Delete project and all children  | Yes  |
-| POST   | `/projects/import` | Import project from spreadsheet  | Yes  |
-
-### Tasks
-
-| Method | Path                   | Description             | Auth |
-| ------ | ---------------------- | ----------------------- | ---- |
-| POST   | `/projects/{id}/tasks` | Create a task           | Yes  |
-| GET    | `/projects/{id}/tasks` | List tasks (filterable) | Yes  |
-| GET    | `/tasks/{id}`          | Get a single task       | Yes  |
-| PUT    | `/tasks/{id}`          | Update task fields      | Yes  |
-| DELETE | `/tasks/{id}`          | Delete a task           | Yes  |
-
-### Messages
-
-| Method | Path                      | Description           | Auth |
-| ------ | ------------------------- | --------------------- | ---- |
-| POST   | `/projects/{id}/messages` | Create a message      | Yes  |
-| GET    | `/projects/{id}/messages` | List project messages | Yes  |
-
-### AI
-
-| Method | Path              | Description                | Auth |
-| ------ | ----------------- | -------------------------- | ---- |
-| POST   | `/ai/summary`     | Generate project summary   | Yes  |
-| POST   | `/ai/suggestions` | Get scheduling suggestions | Yes  |
-
-### Other
-
-| Method | Path      | Description                | Auth |
-| ------ | --------- | -------------------------- | ---- |
-| GET    | `/health` | Health check               | No   |
-| GET    | `/policy` | Ethics and security policy | No   |
-
-Interactive API documentation available at `/docs` (Swagger UI) and `/redoc` (ReDoc).
+Interactive API docs at `/docs` (Swagger UI) and `/redoc` (ReDoc).
 
 ## Design System
 
+All visual tokens centralized in `flet_app/theme.py`. No hardcoded colors, fonts, or spacing in views.
+
 ### Color Palette
 
-All colors are defined as CSS custom properties in `:root` for consistency across every screen.
-
-| Token              | Value     | Usage                                                |
-| ------------------ | --------- | ---------------------------------------------------- |
-| `--bg-root`        | `#050508` | Page background                                      |
-| `--bg-surface`     | `#0e0e12` | Sidebar, modals                                      |
-| `--bg-elevated`    | `#161619` | Raised surfaces                                      |
-| `--bg-card`        | `#1c1c21` | Cards, task rows                                     |
-| `--bg-card-hover`  | `#222228` | Hover state for cards                                |
-| `--accent`         | `#8b5cf6` | Primary action color (violet)                        |
-| `--accent-hover`   | `#7c3aed` | Hover state for accent                               |
-| `--success`        | `#22c55e` | Completed status, success toasts                     |
-| `--warning`        | `#f59e0b` | High priority badge                                  |
-| `--error`          | `#ef4444` | Blocked status, error toasts, delete actions         |
-| `--info`           | `#3b82f6` | In progress status                                   |
-| `--text-primary`   | `#fafafa` | Headings and body text                               |
-| `--text-secondary` | `#a1a1aa` | Descriptions and secondary labels                    |
-| `--text-tertiary`  | `#8b8b95` | Tertiary labels and placeholders (WCAG AA compliant) |
+| Token              | Hex       | Usage                          |
+| ------------------ | --------- | ------------------------------ |
+| `BG`               | `#f8f9fa` | Page background                |
+| `SURFACE` / `CARD` | `#ffffff` | Elevated surfaces, cards       |
+| `SIDEBAR`          | `#f1f3f5` | NavigationRail background      |
+| `ACCENT`           | `#7c3aed` | Primary action color (violet)  |
+| `ACCENT_LIGHT`     | `#ede9fe` | Accent tints, active states    |
+| `SUCCESS`          | `#16a34a` | Completed status               |
+| `WARNING`          | `#d97706` | High priority                  |
+| `ERROR`            | `#dc2626` | Blocked status, delete actions |
+| `INFO`             | `#2563eb` | In progress status             |
+| `TEXT_PRIMARY`     | `#111827` | Headings and body              |
+| `TEXT_SECONDARY`   | `#6b7280` | Descriptions                   |
+| `TEXT_TERTIARY`    | `#9ca3af` | Tertiary labels                |
 
 ### Typography
 
-Font: **Inter** (Google Fonts) with system fallbacks.
+Font: **Inter** (Google Fonts). Factory functions: `heading_1()` (28/700), `heading_2()` (20/600), `heading_3()` (16/600), `body_text()` (14/400), `body_secondary()` (13/400), `label_text()` (12/600 uppercase).
 
-| Class              | Size                     | Weight | Use                       |
-| ------------------ | ------------------------ | ------ | ------------------------- |
-| `.heading-display` | 2.5rem to 4.5rem (fluid) | 700    | Hero headings             |
-| `.heading-1`       | 2rem                     | 600    | Page titles               |
-| `.heading-2`       | 1.5rem                   | 600    | Section titles            |
-| `.heading-3`       | 1.125rem                 | 600    | Card titles               |
-| `.body-large`      | 1.125rem                 | 400    | Lead paragraphs           |
-| `.body`            | 0.9375rem                | 400    | Default body text         |
-| `.body-small`      | 0.8125rem                | 400    | Secondary descriptions    |
-| `.label`           | 0.8125rem                | 500    | Uppercase category labels |
+### Component Factories
 
-### Component Library
+Pre-styled controls from `theme.py`: `badge()`, `status_badge()`, `priority_badge()`, `card_container()`, `accent_button()`, `outlined_button()`, `styled_textfield()`, `styled_dropdown()`, `snackbar()`.
 
-- **Buttons**: primary (violet fill), secondary (outlined), ghost (text only), danger (red tint), icon only (44x44px touch target)
-- **Inputs**: dark backgrounds with accent border on focus, 3px glow ring, error state variant
-- **Cards**: surface color with 1px border, interactive variant with hover lift and gradient top accent
-- **Badges**: status (not_started / in_progress / completed / blocked) and priority (low / medium / high / critical)
-- **Modals**: overlay with backdrop blur, spring eased entrance, focus trap, escape to close
-- **Toast notifications**: slide in from right, auto dismiss after 4 seconds, success / error / info variants
-- **Dropzone**: dashed border area with drag and drop support, accent highlight on hover/dragover
-- **Progress bar**: gradient fill from accent to purple
-- **Tabs**: underline style with accent indicator on active tab
-- **Filter chips**: pill shaped toggles with accent highlight when active
+## Frontend Requirements Coverage
 
-### Layout
+This table maps every course requirement to where it is implemented in the Flet frontend.
 
-Three page layouts:
-
-1. **Auth**: centered card on full viewport, no sidebar
-2. **Dashboard**: fixed sidebar (260px) + scrollable main content
-3. **Project**: same sidebar + breadcrumb header + tabbed body
-
-Responsive breakpoints:
-
-- Below 1024px: sidebar collapses, hamburger menu appears
-- Below 640px: single column project grid, stacked stats
-
-### Animations
-
-- **Entrance**: staggered `fadeSlideUp` on cards and task rows (30ms to 60ms delay per item)
-- **Hover**: translateY lift on project cards and primary buttons
-- **Modals**: scale + translateY with spring easing on open
-- **Toasts**: slideInRight with fade out on dismiss
-- **Auth background**: three floating gradient orbs with 20s drift animation
-- **Loading**: spinner rotation, skeleton shimmer for loading states
-- **Error shake**: horizontal shake on failed authentication
-- All animations respect `prefers-reduced-motion: reduce`
-
-## Accessibility
-
-The application meets WCAG 2.1 AA guidelines:
-
-- **Color contrast**: all text/background combinations meet 4.5:1 minimum ratio
-- **Focus indicators**: visible `:focus-visible` outlines (2px accent) on all interactive elements
-- **Touch targets**: all buttons and interactive elements meet the 44x44px minimum (WCAG 2.5.5)
-- **Reduced motion**: `@media (prefers-reduced-motion: reduce)` disables all non essential animations
-- **Modal accessibility**: `role="dialog"`, `aria-modal="true"`, `aria-labelledby` linked to title, focus trap (Tab/Shift+Tab cycles within modal), focus restore on close
-- **ARIA attributes**: `role="alert"` and `aria-live="assertive"` on error messages, `role="tab"` and `aria-selected` on auth toggle, `aria-label` on all icon only buttons, `aria-hidden="true"` on decorative SVGs
-- **Semantic forms**: all inputs have associated `<label>` elements with `for` attributes
-- **Keyboard navigation**: full Tab order, Escape closes modals, overlay click dismisses modals
-- **Font sizing**: minimum 12px (0.75rem) across all text elements
-- **Custom scrollbar**: subtle styling that does not remove native scrollbar functionality
+| Course Concept                 | Implementation                                                                                                                                |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Controls/Widgets**           | `Text`, `TextField`, `Button`, `Dropdown`, `IconButton`, `ProgressBar`, `ProgressRing`, `FilePicker`, `Divider`, `Tab` used across all views  |
+| **Page object**                | `ft.Page` as root: `title`, `bgcolor`, `padding`, `theme_mode`, `window.width`, `window.height`, `window.min_width`                           |
+| **Containers**                 | Used everywhere for backgrounds, padding, borders, alignment, click handling, ink effects                                                     |
+| **Rows and Columns**           | Primary layout primitives: dashboard grid, task rows, form layouts, stat bars, Gantt rows                                                     |
+| **Cards**                      | `card_container()` factory: project cards, stat cards, analytics panels, message cards, AI results                                            |
+| **ListView / Scrollable**      | Chat message history, task lists, message lists, analytics content as scrollable `Column(scroll=AUTO)`                                        |
+| **Alignment**                  | Page-level (`horizontal_alignment`), container-level (`ft.Alignment.CENTER`), row-level (`MainAxisAlignment`)                                 |
+| **Event handling**             | `on_click`, `on_select`, `on_submit`, `on_route_change`, `on_change` callbacks in every view                                                  |
+| **Navigation and routing**     | `page.on_route_change`, `page.go()`, route guards checking `state.is_authenticated()`, `NavigationRail` with `on_change`                      |
+| **AlertDialog and Modal**      | Create/edit/delete dialogs in dashboard and project views: `AlertDialog(modal=True)`, overlay append, `.open = True`                          |
+| **SnackBar**                   | `theme.snackbar()` helper for feedback on delete, import, create, update actions                                                              |
+| **Dropdown**                   | Task status/priority selection (`styled_dropdown`), AI chat project selector (`ft.Dropdown`)                                                  |
+| **Tabs**                       | Project detail: `TabBar` + `TabBarView` with Tasks, Gantt, Messages, AI Assistant tabs                                                        |
+| **Images and Icons**           | `ft.Icon` and `ft.Icons.*` throughout nav rail, buttons, status indicators, empty states                                                      |
+| **NavigationRail**             | `NavigationRail` with 4 destinations (Dashboard, Analytics, AI Chat, Profile) + sign-out trailing button                                      |
+| **RGB color system**           | Hex colors defined in `theme.py`: status colors, priority colors, accent palette                                                              |
+| **Async patterns**             | `asyncio.create_task` for `FilePicker.pick_files()` (async in Flet 0.82.x)                                                                    |
+| **HTTP methods**               | ApiClient: GET for reads, POST for creates/AI, PUT for updates, DELETE for removals                                                           |
+| **Security (HTTPS/JWT)**       | JWT bearer tokens, bcrypt password hashing, token persistence to disk, auto-logout on 401                                                     |
+| **Server-client architecture** | Flet frontend (client) communicates with FastAPI backend (server) over HTTP/JSON                                                              |
+| **Flutter architecture**       | Flet communicates with the Flutter engine underneath (three-layer architecture)                                                               |
+| **Flet project setup**         | Standard structure: `flet_app/` package with `main.py`, `state.py`, `theme.py`, `api_client.py`, `components/`, `views/`                      |
+| **`page.update()` pattern**    | Called after every state change to push UI updates to the Flutter engine                                                                      |
+| **Objects and properties**     | Every control is an object with mutable properties (`text.value`, `container.visible`, `dialog.open`)                                         |
+| **Factory functions**          | Theme helpers (`heading_1`, `accent_button`, `status_badge`) and component factories (`project_card`, `stat_card`, `task_row`, `gantt_chart`) |
+| **File import**                | `FilePicker` for CSV/Excel upload (desktop mode). Backend parses with pandas.                                                                 |
+| **Database connection**        | Backend connects to PostgreSQL via SQLAlchemy async. Full CRUD across 20 endpoints.                                                           |
+| **Containerization**           | Docker Compose for PostgreSQL + backend. Reproducible deployment with health checks.                                                          |
+| **CSS styling (parallel)**     | `theme.py` centralizes all visual tokens (colors, spacing, radius) analogous to CSS custom properties                                         |
+| **DOM tree (parallel)**        | Flet control tree: Page > Row > [NavigationRail, Container > Column > controls]. Parent-child nesting mirrors DOM.                            |
+| **JavaScript/DOM (parallel)**  | `page.update()` is the re-render. Event handlers (`on_click`, `on_submit`) are the event listener equivalent.                                 |
 
 ## Project Structure
 
 ```
 supersonic/
 |
-|   .env.example          # Environment variable template
-|   docker-compose.yml    # PostgreSQL + backend services
-|   Dockerfile            # Python 3.12 slim container
-|   requirements.txt      # Python dependencies
-|   README.md             # This file
+|   .env.example            # Environment variable template
+|   docker-compose.yml      # PostgreSQL + backend services
+|   Dockerfile              # Python 3.12 slim container
+|   requirements.txt        # Python dependencies
+|   REQUIREMENTS.md         # Detailed course requirements specification
+|   README.md               # This file
 |
-+-- app/
++-- flet_app/               # Desktop frontend (Flet 0.82.x)
 |   |   __init__.py
-|   |   main.py            # FastAPI app, router registration, lifespan hook
+|   |   main.py             # App entry, routing, NavigationRail layout
+|   |   state.py            # Centralized state (token, user, project)
+|   |   theme.py            # Design system (colors, typography, factories)
+|   |   api_client.py       # httpx HTTP client with JWT auth
+|   |
+|   +-- components/
+|   |       __init__.py
+|   |       nav_rail.py     # NavigationRail with 4 destinations + sign-out
+|   |       project_card.py # Clickable project card with stats
+|   |       stat_card.py    # KPI display card (label + value)
+|   |       task_row.py     # Task list item with badges and actions
+|   |       gantt_chart.py  # Gantt chart built from Containers
+|   |       chat_bubble.py  # User/bot chat message bubble
+|   |       file_importer.py# FilePicker wrapper for CSV/Excel import
+|   |
+|   +-- views/
+|           __init__.py
+|           login_view.py   # Sign in / register screen
+|           dashboard_view.py # Project portfolio overview
+|           project_view.py # Project detail (Tasks, Gantt, Messages, AI)
+|           analytics_view.py # Data visualization dashboard
+|           ai_chat_view.py # Conversational AI interface
+|
++-- app/                    # Backend (FastAPI)
+|   |   __init__.py
+|   |   main.py             # FastAPI app, router registration, CORS, lifespan
 |   |
 |   +-- api/
 |   |   |   __init__.py
 |   |   |   deps.py         # Dependency injection (get_db, get_current_user)
-|   |   |
 |   |   +-- routes/
-|   |       |   __init__.py
-|   |       |   auth.py      # Register, login, get current user
-|   |       |   projects.py  # Project CRUD + spreadsheet import
-|   |       |   tasks.py     # Task CRUD with status/priority filtering
-|   |       |   messages.py  # Message create and list
-|   |       |   ai.py        # AI summary and suggestions
-|   |       |   policy.py    # Ethics policy endpoint
-|   |       |   pages.py     # HTML page routes (auth, dashboard, project)
+|   |           __init__.py
+|   |           auth.py     # Register, login, get current user
+|   |           projects.py # Project CRUD + spreadsheet import
+|   |           tasks.py    # Task CRUD with status/priority filtering
+|   |           messages.py # Message create and list
+|   |           ai.py       # AI summary and suggestions (Claude)
+|   |           policy.py   # Ethics policy endpoint
 |   |
 |   +-- core/
 |   |       __init__.py
-|   |       config.py        # Pydantic Settings (reads from .env)
-|   |       security.py      # Password hashing, JWT encode/decode
+|   |       config.py       # Pydantic Settings (reads from .env)
+|   |       security.py     # Password hashing, JWT encode/decode
 |   |
 |   +-- db/
 |   |       __init__.py
-|   |       base.py          # SQLAlchemy DeclarativeBase
-|   |       models.py        # ORM models (User, Project, Task, Tag, Message)
-|   |       session.py       # Async engine and session factory
+|   |       base.py         # SQLAlchemy DeclarativeBase
+|   |       models.py       # ORM models (User, Project, Task, Tag, Message)
+|   |       session.py      # Async engine and session factory
 |   |
 |   +-- schemas/
 |   |       __init__.py
-|   |       auth.py          # UserRegister, UserLogin, UserOut, Token
-|   |       project.py       # ProjectCreate, ProjectUpdate, ProjectOut
-|   |       task.py          # TaskCreate, TaskUpdate, TaskOut
-|   |       message.py       # MessageCreate, MessageOut
-|   |       ai.py            # AISummaryRequest, AISuggestionsRequest, AIResponse
+|   |       auth.py         # UserRegister, UserLogin, UserOut, Token
+|   |       project.py      # ProjectCreate, ProjectUpdate, ProjectOut
+|   |       task.py         # TaskCreate, TaskUpdate, TaskOut
+|   |       message.py      # MessageCreate, MessageOut
+|   |       ai.py           # AISummaryRequest, AISuggestionsRequest, AIResponse
 |   |
 |   +-- services/
-|   |       __init__.py
-|   |       ai_client.py     # Pluggable AI interface (stub implementation)
-|   |       project_importer.py  # Excel/CSV parser
-|   |
-|   +-- static/
-|   |   +-- css/
-|   |   |       style.css    # Complete design system (1900+ lines)
-|   |   +-- js/
-|   |           api.js       # Fetch wrapper with JWT auth
-|   |           app.js       # UI utilities (modals, toasts, focus trap)
-|   |
-|   +-- templates/
-|           base.html        # Base template (fonts, noise overlay, scripts)
-|           auth.html        # Sign in / create account page
-|           dashboard.html   # Project portfolio view
-|           project.html     # Project detail with tasks/messages/AI
+|           __init__.py
+|           ai_client.py    # Claude API integration (Anthropic SDK)
+|           project_importer.py  # Excel/CSV parser
 |
 +-- tests/
         __init__.py
@@ -448,36 +445,40 @@ supersonic/
 
 ### Prerequisites
 
-- Docker and Docker Compose installed
-- Port 8000 and 5432 available
+- Python 3.10+
+- Docker and Docker Compose
+- Ports 8000 (backend) and 5432 (database) available
 
 ### Quick Start
 
 ```bash
 # 1. Clone the repository
-git clone <repository-url>
+git clone https://github.com/em-ech/supersonic.git
 cd supersonic
 
 # 2. Create environment file
 cp .env.example .env
+# Edit .env: set AI_API_KEY to your Anthropic API key for Claude integration
 
-# 3. Build and start
+# 3. Start backend + database
 docker compose up --build -d
 
-# 4. Open in browser
-open http://localhost:8000
+# 4. Verify backend
+curl http://localhost:8000/health
+
+# 5. Run Flet frontend
+python3 -m flet_app.main
 ```
 
 ### Environment Variables
 
-| Variable                      | Default                                                                      | Description                            |
-| ----------------------------- | ---------------------------------------------------------------------------- | -------------------------------------- |
-| `DATABASE_URL`                | `postgresql+asyncpg://supersonic_user:supersonic_pass@db:5432/supersonic_db` | Async PostgreSQL connection string     |
-| `SECRET_KEY`                  | `change-me-to-a-random-secret`                                               | JWT signing key (change in production) |
-| `ALGORITHM`                   | `HS256`                                                                      | JWT algorithm                          |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | `60`                                                                         | Token lifetime                         |
-| `AI_API_BASE_URL`             | `http://localhost:8000/ai`                                                   | AI provider endpoint                   |
-| `AI_API_KEY`                  | `not-needed-for-stub`                                                        | AI provider API key                    |
+| Variable                      | Default                        | Description                               |
+| ----------------------------- | ------------------------------ | ----------------------------------------- |
+| `DATABASE_URL`                | `postgresql+asyncpg://...`     | Async PostgreSQL connection string        |
+| `SECRET_KEY`                  | `change-me-to-a-random-secret` | JWT signing key (change in production)    |
+| `ALGORITHM`                   | `HS256`                        | JWT algorithm                             |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `60`                           | Token lifetime in minutes                 |
+| `AI_API_KEY`                  | `not-needed-for-stub`          | Anthropic API key for Claude AI assistant |
 
 ### Stopping the Application
 
@@ -485,30 +486,3 @@ open http://localhost:8000
 docker compose down        # Stop containers
 docker compose down -v     # Stop and remove database volume
 ```
-
-### Running Without Docker
-
-```bash
-# Requires a running PostgreSQL instance
-# Update DATABASE_URL in .env to point to your database
-
-pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-## Course Alignment
-
-This project demonstrates the following Solutions Development II concepts:
-
-| Concept                  | Where It Appears                                                           |
-| ------------------------ | -------------------------------------------------------------------------- |
-| **HTML structure**       | Jinja2 templates with semantic elements, forms, labels                     |
-| **CSS styling**          | Custom properties, selectors, specificity, responsive design               |
-| **JavaScript and DOM**   | Dynamic rendering, event handling, fetch API, DOM manipulation             |
-| **Layouts**              | Sidebar + main content, tabbed views, modal overlays, responsive grid      |
-| **Controls and widgets** | Buttons, inputs, selects, checkboxes (filter chips), dropzone, navigation  |
-| **Color system**         | 14 CSS custom properties with consistent application across all screens    |
-| **Navigation**           | Sidebar with project list, breadcrumbs, tab switching between views        |
-| **Backend connection**   | REST API with 18 endpoints, JWT authentication, PostgreSQL database        |
-| **Multiple screens**     | Auth, Dashboard, Project Detail (3 distinct layouts, all fully functional) |
-| **Containerization**     | Docker Compose with PostgreSQL and backend services                        |
