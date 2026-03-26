@@ -9,6 +9,7 @@ class Settings(BaseSettings):
 
     AI_API_BASE_URL: str = "http://localhost:8000/ai"
     AI_API_KEY: str = "not-needed-for-stub"
+    ANTHROPIC_API_KEY: str = "not-set"
 
     class Config:
         env_file = ".env"

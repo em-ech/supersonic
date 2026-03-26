@@ -45,6 +45,15 @@ def _parse_priority(raw: str | None) -> str:
     return "medium"
 
 
+def _get_str(row: pd.Series, col: str) -> str | None:
+    """Return a stripped string or None for missing/NaN values."""
+    val = row.get(col)
+    if pd.isna(val):
+        return None
+    s = str(val).strip()
+    return s if s else None
+
+
 async def import_file(
     file: BinaryIO,
     filename: str,
@@ -81,19 +90,23 @@ async def import_file(
         if not task_title:
             continue
 
+        start_dt = pd.to_datetime(row.get("start_date"), errors="coerce")
+        end_dt = pd.to_datetime(row.get("end_date"), errors="coerce")
+
         task = Task(
             id=uuid.uuid4(),
             project_id=project.id,
             title=task_title,
-            description=str(row["description"]).strip() if pd.notna(row.get("description")) else None,
-            assignee=str(row["owner"]).strip() if pd.notna(row.get("owner")) else None,
+            description=_get_str(row, "description"),
+            assignee=_get_str(row, "assignee") or _get_str(row, "owner"),
             status=_parse_status(row.get("status")),
             priority=_parse_priority(row.get("priority")),
-            start_date=pd.to_datetime(row.get("start_date"), errors="coerce"),
-            end_date=pd.to_datetime(row.get("end_date"), errors="coerce"),
+            start_date=start_dt.to_pydatetime() if pd.notna(start_dt) else None,
+            end_date=end_dt.to_pydatetime() if pd.notna(end_dt) else None,
         )
         db.add(task)
 
+    await db.flush()
     await db.commit()
     await db.refresh(project)
     return project
